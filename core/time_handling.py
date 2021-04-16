@@ -1053,6 +1053,41 @@ def find_cfsv2_neighbors(input_forcings, config_options, d_current, mpi_config):
             input_forcings.regridded_forcings2[:, :, :] = config_options.globalNdv
 
 
+def find_custom_hourly_neighbors_era5land(input_forcings, config_options, d_current, mpi_config):
+    """
+    Simplified version to read in preprocessed ERA5land hourly forcing
+    """
+    # the offset should be always zero in this case
+    current_custom_cycle = config_options.current_fcst_cycle - \
+        datetime.timedelta(seconds=input_forcings.userCycleOffset * 60.0)
+
+    dt_tmp = d_current - current_custom_cycle
+    # assuming hourly interval for both input forcing and forecast/output
+    current_custom_hour = int(dt_tmp.days*24) + math.floor(dt_tmp.seconds/3600.0)
+    input_forcings.fcst_date1 = d_current
+    input_forcings.fcst_date2 = d_current
+    input_forcings.fcst_hour1 = current_custom_hour
+    input_forcings.fcst_hour2 = current_custom_hour
+
+    # update the forcing every time this is called
+    tmp_file = input_forcings.inDir + "/" + \
+        "era5land.hourly." + d_current.strftime('%Y%m%d%H') + ".nc"
+    input_forcings.file_in1 = tmp_file
+    input_forcings.file_in2 = tmp_file
+    input_forcings.regridComplete = False
+    if mpi_config.rank == 0:
+        if not os.path.isfile(input_forcings.file_in2):
+            if input_forcings.enforce == 1:
+                config_options.errMsg = "Expected input Custom file: " + \
+                    input_forcings.file_in2 + " not found."
+                err_handler.log_critical(config_options, mpi_config)
+            else:
+                config_options.statusMsg = "Expected input Custom file: " + \
+                    input_forcings.file_in2 + " not found. Will not use in final layering."
+                err_handler.log_warning(config_options, mpi_config)
+    err_handler.check_program_status(config_options, mpi_config)
+
+
 def find_custom_hourly_neighbors(input_forcings, config_options, d_current, mpi_config):
     """
     Function to calculate the previous and after hourly custom NetCDF files for use in processing.

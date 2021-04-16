@@ -8,6 +8,7 @@ import time
 
 import ESMF
 import numpy as np
+from netCDF4 import Dataset
 
 from core import err_handler
 from core import ioMod
@@ -843,60 +844,113 @@ def regrid_custom_hourly_netcdf(input_forcings, config_options, wrf_hydro_geo_me
         if calc_regrid_flag:
             calculate_weights(id_tmp, force_count, input_forcings, config_options, mpi_config)
 
-            # Read in the RAP height field, which is used for downscaling purposes.
-            if 'HGT_surface' in id_tmp.variables.keys():
-                # Regrid the height variable.
-                if mpi_config.rank == 0:
-                    var_tmp = id_tmp.variables['HGT_surface'][0, :, :]
-                else:
-                    var_tmp = None
-                err_handler.check_program_status(config_options, mpi_config)
-
-                var_sub_tmp = mpi_config.scatter_array(input_forcings, var_tmp, config_options)
-                err_handler.check_program_status(config_options, mpi_config)
-
-                try:
-                    input_forcings.esmf_field_in.data[:, :] = var_sub_tmp
-                except (ValueError, KeyError, AttributeError) as err:
-                    config_options.errMsg = "Unable to place NetCDF elevation data into the ESMF field object: " \
-                                            + str(err)
-                    err_handler.log_critical(config_options, mpi_config)
-                err_handler.check_program_status(config_options, mpi_config)
-
-                if mpi_config.rank == 0:
-                    config_options.statusMsg = "Regridding elevation data to the WRF-Hydro domain."
-                    err_handler.log_msg(config_options, mpi_config)
-                try:
-                    input_forcings.esmf_field_out = input_forcings.regridObj(input_forcings.esmf_field_in,
-                                                                             input_forcings.esmf_field_out)
-                except ValueError as ve:
-                    config_options.errMsg = "Unable to regrid elevation data to the WRF-Hydro domain " \
-                                            "using ESMF: " + str(ve)
-                    err_handler.log_critical(config_options, mpi_config)
-                err_handler.check_program_status(config_options, mpi_config)
-
-                # Set any pixel cells outside the input domain to the global missing value.
-                try:
-                    input_forcings.esmf_field_out.data[np.where(input_forcings.regridded_mask == 0)] = \
-                        config_options.globalNdv
-                except (ValueError, ArithmeticError) as npe:
-                    config_options.errMsg = "Unable to compute mask on elevation data: " + str(npe)
-                    err_handler.log_critical(config_options, mpi_config)
-                err_handler.check_program_status(config_options, mpi_config)
-
-                try:
-                    input_forcings.height[:, :] = input_forcings.esmf_field_out.data
-                except (ValueError, KeyError, AttributeError) as err:
-                    config_options.errMsg = "Unable to extract ESMF regridded elevation data to a local " \
-                                            "array: " + str(err)
-                    err_handler.log_critical(config_options, mpi_config)
-                err_handler.check_program_status(config_options, mpi_config)
+            # Read in ERA5-land height field here
+            if mpi_config.rank == 0:
+                id_hgt = Dataset(input_forcings.inDir + "/" + "hgt.nc", "r")
+                var_tmp = id_hgt.variables['hgt'][0,:,:]
             else:
-                input_forcings.height = None
-                if mpi_config.rank == 0:
-                    config_options.statusMsg = f"Unable to locate HGT_surface in: {input_forcings.file_in2}. " \
-                                               f"Downscaling will not be available."
-                    err_handler.log_msg(config_options, mpi_config)
+                id_hgt = None
+                var_tmp = None
+            err_handler.check_program_status(config_options, mpi_config)
+
+            var_sub_tmp = mpi_config.scatter_array(input_forcings, var_tmp, config_options)
+            err_handler.check_program_status(config_options, mpi_config)
+
+            try:
+                input_forcings.esmf_field_in.data[:, :] = var_sub_tmp
+            except (ValueError, KeyError, AttributeError) as err:
+                config_options.errMsg = "Unable to place NetCDF elevation data into the ESMF field object: " \
+                                        + str(err)
+                err_handler.log_critical(config_options, mpi_config)
+            err_handler.check_program_status(config_options, mpi_config)
+
+            if mpi_config.rank == 0:
+                config_options.statusMsg = "Regridding elevation data to the WRF-Hydro domain."
+                err_handler.log_msg(config_options, mpi_config)
+            try:
+                input_forcings.esmf_field_out = input_forcings.regridObj(input_forcings.esmf_field_in,
+                                                                         input_forcings.esmf_field_out)
+            except ValueError as ve:
+                config_options.errMsg = "Unable to regrid elevation data to the WRF-Hydro domain " \
+                                        "using ESMF: " + str(ve)
+                err_handler.log_critical(config_options, mpi_config)
+            err_handler.check_program_status(config_options, mpi_config)
+
+            # Set any pixel cells outside the input domain to the global missing value.
+            try:
+                input_forcings.esmf_field_out.data[np.where(input_forcings.regridded_mask == 0)] = \
+                    config_options.globalNdv
+            except (ValueError, ArithmeticError) as npe:
+                config_options.errMsg = "Unable to compute mask on elevation data: " + str(npe)
+                err_handler.log_critical(config_options, mpi_config)
+            err_handler.check_program_status(config_options, mpi_config)
+
+            try:
+                input_forcings.height[:, :] = input_forcings.esmf_field_out.data
+            except (ValueError, KeyError, AttributeError) as err:
+                config_options.errMsg = "Unable to extract ESMF regridded elevation data to a local " \
+                                        "array: " + str(err)
+                err_handler.log_critical(config_options, mpi_config)
+            err_handler.check_program_status(config_options, mpi_config)
+
+            # close the file
+            if mpi_config.rank == 0:
+                id_hgt.close()
+
+            # # Read in the RAP height field, which is used for downscaling purposes.
+            # if 'HGT_surface' in id_tmp.variables.keys():
+            #     # Regrid the height variable.
+            #     if mpi_config.rank == 0:
+            #         var_tmp = id_tmp.variables['HGT_surface'][0, :, :]
+            #     else:
+            #         var_tmp = None
+            #     err_handler.check_program_status(config_options, mpi_config)
+
+            #     var_sub_tmp = mpi_config.scatter_array(input_forcings, var_tmp, config_options)
+            #     err_handler.check_program_status(config_options, mpi_config)
+
+            #     try:
+            #         input_forcings.esmf_field_in.data[:, :] = var_sub_tmp
+            #     except (ValueError, KeyError, AttributeError) as err:
+            #         config_options.errMsg = "Unable to place NetCDF elevation data into the ESMF field object: " \
+            #                                 + str(err)
+            #         err_handler.log_critical(config_options, mpi_config)
+            #     err_handler.check_program_status(config_options, mpi_config)
+
+            #     if mpi_config.rank == 0:
+            #         config_options.statusMsg = "Regridding elevation data to the WRF-Hydro domain."
+            #         err_handler.log_msg(config_options, mpi_config)
+            #     try:
+            #         input_forcings.esmf_field_out = input_forcings.regridObj(input_forcings.esmf_field_in,
+            #                                                                  input_forcings.esmf_field_out)
+            #     except ValueError as ve:
+            #         config_options.errMsg = "Unable to regrid elevation data to the WRF-Hydro domain " \
+            #                                 "using ESMF: " + str(ve)
+            #         err_handler.log_critical(config_options, mpi_config)
+            #     err_handler.check_program_status(config_options, mpi_config)
+
+            #     # Set any pixel cells outside the input domain to the global missing value.
+            #     try:
+            #         input_forcings.esmf_field_out.data[np.where(input_forcings.regridded_mask == 0)] = \
+            #             config_options.globalNdv
+            #     except (ValueError, ArithmeticError) as npe:
+            #         config_options.errMsg = "Unable to compute mask on elevation data: " + str(npe)
+            #         err_handler.log_critical(config_options, mpi_config)
+            #     err_handler.check_program_status(config_options, mpi_config)
+
+            #     try:
+            #         input_forcings.height[:, :] = input_forcings.esmf_field_out.data
+            #     except (ValueError, KeyError, AttributeError) as err:
+            #         config_options.errMsg = "Unable to extract ESMF regridded elevation data to a local " \
+            #                                 "array: " + str(err)
+            #         err_handler.log_critical(config_options, mpi_config)
+            #     err_handler.check_program_status(config_options, mpi_config)
+            # else:
+            #     input_forcings.height = None
+            #     if mpi_config.rank == 0:
+            #         config_options.statusMsg = f"Unable to locate HGT_surface in: {input_forcings.file_in2}. " \
+            #                                    f"Downscaling will not be available."
+            #         err_handler.log_msg(config_options, mpi_config)
 
             # close netCDF file on non-root ranks
             if mpi_config.rank != 0:
@@ -945,17 +999,17 @@ def regrid_custom_hourly_netcdf(input_forcings, config_options, wrf_hydro_geo_me
             err_handler.log_critical(config_options, mpi_config)
         err_handler.check_program_status(config_options, mpi_config)
 
-        # Convert the hourly precipitation total to a rate of mm/s
-        if nc_var == 'APCP_surface':
-            try:
-                ind_valid = np.where(input_forcings.esmf_field_out.data != fill)
-                input_forcings.esmf_field_out.data[ind_valid] = input_forcings.esmf_field_out.data[
-                                                                    ind_valid] / 3600.0
-                del ind_valid
-            except (ValueError, ArithmeticError, AttributeError, KeyError) as npe:
-                config_options.errMsg = "Unable to run NDV search on Custom netCDF precipitation: " + str(npe)
-                err_handler.log_critical(config_options, mpi_config)
-            err_handler.check_program_status(config_options, mpi_config)
+        # # Convert the hourly precipitation total to a rate of mm/s
+        # if nc_var == 'APCP_surface':
+        #     try:
+        #         ind_valid = np.where(input_forcings.esmf_field_out.data != fill)
+        #         input_forcings.esmf_field_out.data[ind_valid] = input_forcings.esmf_field_out.data[
+        #                                                             ind_valid] / 3600.0
+        #         del ind_valid
+        #     except (ValueError, ArithmeticError, AttributeError, KeyError) as npe:
+        #         config_options.errMsg = "Unable to run NDV search on Custom netCDF precipitation: " + str(npe)
+        #         err_handler.log_critical(config_options, mpi_config)
+        #     err_handler.check_program_status(config_options, mpi_config)
 
         try:
             input_forcings.regridded_forcings2[input_forcings.input_map_output[force_count], :, :] = \
