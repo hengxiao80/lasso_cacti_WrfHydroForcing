@@ -3,7 +3,7 @@
 #SBATCH -A cli120
 #SBATCH -J test
 #SBATCH -N 1 
-#SBATCH -t 0:10:00
+#SBATCH -t 1:00:00
 #SBATCH -o test.out
 #SBATCH -e test.err
 
