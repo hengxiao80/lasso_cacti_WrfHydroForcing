@@ -147,7 +147,8 @@ def process_forecasts(ConfigOptions, wrfHydroGeoMeta, inputForcingMod, suppPcpMo
             # Compose the expected path to the output file. Check to see if the file exists,
             # if so, continue to the next time step. Also initialize our output arrays if necessary.
             OutputObj.outPath = fcstCycleOutDir + "/" + file_date.strftime('%Y%m%d%H%M') + \
-                                ".LDASIN_DOMAIN1"
+                                ".LDASIN_DOMAIN2"
+                                # ".LDASIN_DOMAIN1"
             # MpiConfig.comm.barrier()
 
             if os.path.isfile(OutputObj.outPath):
